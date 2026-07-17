@@ -83,6 +83,15 @@
     transition:transform .22s ease, opacity .22s ease;
   }
   #speak.out{opacity:0;}
+  #playType{
+    position:absolute; top:14px; right:14px; z-index:5; display:none;
+    align-items:center; gap:5px; padding:5px 11px; border-radius:16px;
+    border:1px solid var(--gold); background:var(--paper); color:var(--gold);
+    font-size:12px; font-weight:600; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.2);
+    transition:transform .15s ease, opacity .15s ease;
+  }
+  #playType.on{background:var(--gold); color:var(--navy);}
+  #playType:active{transform:scale(.95);}
   /* 動作按鈕 */
   #actions{display:flex; gap:8px; margin:24px auto 0; width:100%; max-width:360px; align-items:stretch;}
   #actions button{padding:14px 0; border-radius:12px; font-size:16px; cursor:pointer;}
@@ -221,6 +230,7 @@
     <div class="ghost g2"></div>
     <button id="card" aria-label="翻面看答案"></button>
     <button id="speak" aria-label="播放讀音">🔊</button>
+    <button id="playType" aria-label="播放整組單字">▶ 整組</button>
   </div>
   <div id="actions">
     <button id="btnPrev" class="navbtn" aria-label="上一張">‹</button>
@@ -1301,11 +1311,43 @@ if ("speechSynthesis" in window){
 }
 function speak(text){
   if (!("speechSynthesis" in window)) return;
+  stopTypePlay();
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "ja-JP"; u.rate = 0.85;
   if (jaVoice) u.voice = jaVoice;
   speechSynthesis.speak(u);
+}
+
+// ============ 播放整組單字（該分類全部，依序朗讀）============
+let typeRunId = 0;
+function stopTypePlay(){
+  typeRunId++;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  const b = document.getElementById("playType"); if (b) b.classList.remove("on");
+}
+function playTypeAll(){
+  if (!("speechSynthesis" in window)) return;
+  const btn = document.getElementById("playType");
+  const wasOn = btn.classList.contains("on");
+  stopTypePlay();
+  if (wasOn) return;                 // 再按一次 = 停止
+  const items = (cat === "全部") ? VOCAB : VOCAB.filter(v => v.c === cat);
+  const texts = items.map(v => v.r).filter(Boolean);
+  if (!texts.length) return;
+  const myRun = typeRunId;
+  btn.classList.add("on");
+  let i = 0;
+  (function next(){
+    if (myRun !== typeRunId) return;  // 已被其他播放／切換取消
+    if (i >= texts.length){ btn.classList.remove("on"); return; }
+    const u = new SpeechSynthesisUtterance(texts[i++]);
+    u.lang = "ja-JP"; u.rate = 0.85;
+    if (jaVoice) u.voice = jaVoice;
+    u.onend = next;
+    u.onerror = ()=>{ if (myRun === typeRunId) btn.classList.remove("on"); };
+    speechSynthesis.speak(u);
+  })();
 }
 
 // ============ 工具 ============
@@ -1334,6 +1376,7 @@ let activeTab = "cards";
 let selectedKana = { hira: null, kata: null };
 
 function switchTab(tab){
+  stopTypePlay();
   activeTab = tab;
   ["tabCards","tabHira","tabKata"].forEach(id=>$(id).classList.add("hidden"));
   $(tab === "hira" ? "tabHira" : tab === "kata" ? "tabKata" : "tabCards").classList.remove("hidden");
@@ -1447,9 +1490,12 @@ function renderCats(){
   $("chipShuffle").textContent = (shuffleOn ? "✓ " : "") + "隨機順序";
 }
 function renderCard(){
+  stopTypePlay();
   renderHeader(); renderCats();
   if (deck.length === 0){ show("emptyView"); return; }
   show("cardView");
+  // 只在該分類第一張卡片的右上角顯示「播放整組」按鈕
+  $("playType").style.display = (pos === 0 && "speechSynthesis" in window) ? "inline-flex" : "none";
   const w = VOCAB[deck[pos]];
   $("counter").innerHTML = `${pos+1} / ${deck.length}　·　${w.c}` +
     (hard.has(w.k) ? `　<span class="hard">● 不熟</span>` : "");
@@ -1567,6 +1613,7 @@ $("card").addEventListener("pointermove", onPointerMove);
 $("card").addEventListener("pointerup", onPointerUp);
 $("card").addEventListener("pointercancel", onPointerUp);
 $("speak").onclick = e=>{ e.stopPropagation(); speak(VOCAB[deck[pos]].r); };
+$("playType").onclick = e=>{ e.stopPropagation(); playTypeAll(); };
 $("btnYes").onclick = ()=>advance(true);
 $("btnNo").onclick = ()=>advance(false);
 $("btnPrev").onclick = prevCard;
